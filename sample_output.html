@@ -1,0 +1,229 @@
+
+<h2 class="sr-only">End-to-end PLC processing pipeline — interactive step-by-step walkthrough</h2>
+<style>
+.step-wrap { padding: 1rem 0; }
+.progress-row { display:flex; align-items:center; gap:0; margin-bottom:1.5rem; }
+.prog-step { flex:1; display:flex; flex-direction:column; align-items:center; gap:4px; cursor:pointer; }
+.prog-dot { width:28px; height:28px; border-radius:50%; border:1.5px solid var(--color-border-secondary); background:var(--color-background-primary); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:500; color:var(--color-text-secondary); transition:all .2s; }
+.prog-dot.active { background:#185FA5; border-color:#185FA5; color:#fff; }
+.prog-dot.done { background:#0F6E56; border-color:#0F6E56; color:#fff; }
+.prog-line { flex:1; height:1.5px; background:var(--color-border-tertiary); margin:0 -2px; margin-bottom:20px; }
+.prog-line.done { background:#0F6E56; }
+.prog-label { font-size:10px; color:var(--color-text-tertiary); text-align:center; max-width:64px; line-height:1.3; }
+.prog-label.active { color:#185FA5; font-weight:500; }
+.card-main { background:var(--color-background-primary); border:0.5px solid var(--color-border-tertiary); border-radius:var(--border-radius-lg); padding:1.25rem 1.5rem; margin-bottom:1rem; }
+.badge { display:inline-block; padding:2px 10px; border-radius:20px; font-size:11px; font-weight:500; margin-bottom:8px; }
+.badge-blue { background:#E6F1FB; color:#0C447C; }
+.badge-red  { background:#FCEBEB; color:#791F1F; }
+.badge-teal { background:#E1F5EE; color:#085041; }
+.badge-purple { background:#EEEDFE; color:#3C3489; }
+.badge-amber { background:#FAEEDA; color:#633806; }
+.badge-green { background:#EAF3DE; color:#27500A; }
+.step-title { font-size:16px; font-weight:500; color:var(--color-text-primary); margin:0 0 4px; }
+.step-sub { font-size:13px; color:var(--color-text-secondary); margin:0 0 12px; }
+.code-block { background:var(--color-background-secondary); border:0.5px solid var(--color-border-tertiary); border-radius:var(--border-radius-md); padding:10px 14px; font-family:var(--font-mono); font-size:12px; color:var(--color-text-primary); line-height:1.7; margin:10px 0; white-space:pre; overflow-x:auto; }
+.kw { color:#185FA5; }
+.cm { color:#888780; }
+.str { color:#0F6E56; }
+.tag-row { display:flex; gap:6px; flex-wrap:wrap; margin:8px 0; }
+.tag { padding:3px 10px; border-radius:20px; font-size:11px; border:0.5px solid var(--color-border-secondary); color:var(--color-text-secondary); }
+.output-preview { background:var(--color-background-secondary); border-radius:var(--border-radius-md); border:0.5px solid var(--color-border-tertiary); padding:10px 14px; font-size:12px; line-height:1.8; }
+.row-kv { display:flex; justify-content:space-between; font-size:12px; padding:3px 0; border-bottom:0.5px solid var(--color-border-tertiary); }
+.row-kv:last-child { border-bottom:none; }
+.kv-key { color:var(--color-text-secondary); }
+.kv-val { color:var(--color-text-primary); font-weight:500; }
+.nav-row { display:flex; gap:10px; align-items:center; }
+.nav-row button { flex:1; }
+.timer-bar { height:3px; background:var(--color-border-tertiary); border-radius:2px; margin-top:8px; overflow:hidden; }
+.timer-fill { height:100%; background:#185FA5; border-radius:2px; transition:width .05s linear; }
+</style>
+
+<div class="step-wrap">
+  <div class="progress-row" id="prog-row"></div>
+  <div class="card-main" id="step-card"></div>
+  <div class="nav-row">
+    <button id="btn-prev" onclick="navigate(-1)">← Previous</button>
+    <span style="font-size:12px;color:var(--color-text-tertiary);text-align:center;flex:0 0 80px" id="step-counter"></span>
+    <button id="btn-next" onclick="navigate(1)">Next →</button>
+  </div>
+  <div class="timer-bar"><div class="timer-fill" id="timer-fill" style="width:0%"></div></div>
+</div>
+
+<script>
+const STEPS = [
+  {
+    label:'Upload', badge:'badge-blue', badgeText:'step 1 of 8',
+    title:'User uploads PLC file',
+    sub:'Streamlit web interface — drag and drop your .st / .l5x / .xml file',
+    content:`<div class="code-block"><span class="cm"># Streamlit upload widget</span>
+uploaded = st.file_uploader(
+    <span class="str">"Upload PLC source file"</span>,
+    type=[<span class="str">"st"</span>, <span class="str">"l5x"</span>, <span class="str">"xml"</span>, <span class="str">"fbd"</span>]
+)
+<span class="kw">if</span> uploaded:
+    raw_code = uploaded.read().decode(<span class="str">"utf-8"</span>)</div>
+<div class="tag-row"><span class="tag">formats: .st .l5x .xml .fbd</span><span class="tag">max size: 2000 lines</span><span class="tag">runs offline</span></div>`
+  },
+  {
+    label:'Parse', badge:'badge-blue', badgeText:'step 2 of 8',
+    title:'Smart parser extracts structure',
+    sub:'Python lxml + regex — no LLM yet, purely deterministic extraction',
+    content:`<div class="code-block"><span class="cm"># Extract VAR blocks, I/O tags, timers</span>
+var_block = re.findall(
+    <span class="str">r'VAR\s+(.*?)\s+END_VAR'</span>, code, re.DOTALL
+)
+<span class="kw">for</span> line <span class="kw">in</span> var_block:
+    name, dtype = line.split(<span class="str">':'</span>)
+    <span class="kw">if</span> name.startswith((<span class="str">'DI_'</span>,<span class="str">'DO_'</span>,<span class="str">'AI_'</span>)):
+        io_tags.append({name, dtype})</div>
+<div class="output-preview">
+  <div class="row-kv"><span class="kv-key">Variables found</span><span class="kv-val">24</span></div>
+  <div class="row-kv"><span class="kv-key">I/O tags detected</span><span class="kv-val">11</span></div>
+  <div class="row-kv"><span class="kv-key">Timer instances</span><span class="kv-val">3  (TON × 2, TOF × 1)</span></div>
+  <div class="row-kv"><span class="kv-key">Function blocks</span><span class="kv-val">5</span></div>
+</div>`
+  },
+  {
+    label:'Classify', badge:'badge-amber', badgeText:'step 3 of 8',
+    title:'Zone classifier assigns each block',
+    sub:'Rule-based keyword matching — deterministic, explainable, no hallucinations',
+    content:`<div class="code-block">zone_keywords = {
+  <span class="str">"startup"</span>:  [<span class="str">"INIT"</span>, <span class="str">"RESET"</span>, <span class="str">"READY"</span>],
+  <span class="str">"safety"</span>:   [<span class="str">"ESTOP"</span>, <span class="str">"INTERLOCK"</span>],
+  <span class="str">"fault"</span>:    [<span class="str">"FAULT"</span>, <span class="str">"ALARM"</span>, <span class="str">"TRIP"</span>],
+  <span class="str">"shutdown"</span>: [<span class="str">"STOP_CMD"</span>, <span class="str">"SAFE_STATE"</span>],
+}
+<span class="cm"># Unmatched lines → normal operation</span></div>
+<div class="output-preview">
+  <div class="row-kv"><span class="kv-key">Startup sequence</span><span class="kv-val">18 lines</span></div>
+  <div class="row-kv"><span class="kv-key">Normal operation</span><span class="kv-val">142 lines</span></div>
+  <div class="row-kv"><span class="kv-key">Safety interlock</span><span class="kv-val">34 lines</span></div>
+  <div class="row-kv"><span class="kv-key">Fault handling</span><span class="kv-val">28 lines</span></div>
+  <div class="row-kv"><span class="kv-key">Shutdown sequence</span><span class="kv-val">22 lines</span></div>
+</div>`
+  },
+  {
+    label:'Safety', badge:'badge-red', badgeText:'step 4 of 8',
+    title:'Safety detector scans independently',
+    sub:'Dedicated pass — ensures no safety tag is missed even inside normal operation code',
+    content:`<div class="code-block">estop = re.findall(
+    <span class="str">r'(E_STOP|ESTOP|EMERGENCY_STOP)\s*:?=?\s*(\w+)'</span>,
+    code, re.I
+)
+risk = <span class="str">"HIGH"</span> <span class="kw">if</span> estop <span class="kw">else</span> <span class="str">"LOW"</span></div>
+<div class="output-preview">
+  <div class="row-kv"><span class="kv-key">ESTOP tags found</span><span class="kv-val" style="color:#A32D2D">DO_PumpStop, DO_ValveClose</span></div>
+  <div class="row-kv"><span class="kv-key">Interlock conditions</span><span class="kv-val" style="color:#A32D2D">3 detected</span></div>
+  <div class="row-kv"><span class="kv-key">Risk level assigned</span><span class="kv-val" style="color:#A32D2D">HIGH</span></div>
+</div>`
+  },
+  {
+    label:'I/O map', badge:'badge-teal', badgeText:'step 5 of 8',
+    title:'I/O signal list auto-generated',
+    sub:'A real ABB commissioning deliverable — built from parsed variable declarations',
+    content:`<div class="output-preview">
+  <div class="row-kv" style="font-weight:500"><span class="kv-key">Tag name</span><span class="kv-val">Type · Zone</span></div>
+  <div class="row-kv"><span class="kv-key">DI_PressureHigh</span><span class="kv-val">Digital In · Safety</span></div>
+  <div class="row-kv"><span class="kv-key">DO_PumpStart</span><span class="kv-val">Digital Out · Normal</span></div>
+  <div class="row-kv"><span class="kv-key">AI_FlowRate</span><span class="kv-val">Analog In · Normal</span></div>
+  <div class="row-kv"><span class="kv-key">DO_AlarmBell</span><span class="kv-val">Digital Out · Fault</span></div>
+  <div class="row-kv"><span class="kv-key">DI_GuardOpen</span><span class="kv-val">Digital In · Safety</span></div>
+  <div class="row-kv"><span class="kv-key" style="color:var(--color-text-tertiary)">+ 6 more tags…</span><span class="kv-val">11 total</span></div>
+</div>`
+  },
+  {
+    label:'LLM', badge:'badge-purple', badgeText:'step 6 of 8',
+    title:'LLM called 3× per zone',
+    sub:'Claude API — engineer, auditor, technician prompts run separately per zone',
+    content:`<div class="code-block"><span class="cm"># Called once per role per zone</span>
+response = client.messages.create(
+  model=<span class="str">"claude-sonnet-4-6"</span>,
+  system=ROLE_PROMPTS[<span class="str">"auditor"</span>],
+  messages=[{<span class="str">"role"</span>:<span class="str">"user"</span>,
+    <span class="str">"content"</span>: zone_code[<span class="str">"safety"</span>]}]
+)</div>
+<div class="output-preview">
+  <div class="row-kv"><span class="kv-key">Zones processed</span><span class="kv-val">5</span></div>
+  <div class="row-kv"><span class="kv-key">LLM calls made</span><span class="kv-val">15  (5 zones × 3 roles)</span></div>
+  <div class="row-kv"><span class="kv-key">Tokens per call</span><span class="kv-val">~400 in, ~300 out</span></div>
+  <div class="row-kv"><span class="kv-key">Time taken</span><span class="kv-val">~35 seconds total</span></div>
+</div>`
+  },
+  {
+    label:'Diagram', badge:'badge-teal', badgeText:'step 7 of 8',
+    title:'Control flow diagram generated',
+    sub:'Graphviz renders a zone-transition visual — exported as PNG for the PDF',
+    content:`<div class="code-block">dot = Digraph(format=<span class="str">'png'</span>)
+dot.node(<span class="str">'startup'</span>, <span class="str">'Startup\n(18 lines)'</span>)
+dot.node(<span class="str">'normal'</span>,  <span class="str">'Normal op\n(142 lines)'</span>)
+dot.node(<span class="str">'safety'</span>,  <span class="str">'Safety\n(34 lines)'</span>)
+dot.edge(<span class="str">'startup'</span>, <span class="str">'normal'</span>)
+dot.edge(<span class="str">'normal'</span>,  <span class="str">'safety'</span>, label=<span class="str">'trigger'</span>)
+dot.render(<span class="str">'flow'</span>, cleanup=<span class="kw">True</span>)</div>
+<div class="tag-row"><span class="tag">startup → normal → safety → shutdown</span><span class="tag">fault path included</span></div>`
+  },
+  {
+    label:'PDF out', badge:'badge-green', badgeText:'step 8 of 8',
+    title:'PDF assembled and ready to download',
+    sub:'ReportLab builds the final report — all sections, tables, diagram, narratives',
+    content:`<div class="output-preview">
+  <div class="row-kv"><span class="kv-key">Section 1</span><span class="kv-val">Program overview + I/O signal list</span></div>
+  <div class="row-kv"><span class="kv-key">Section 2</span><span class="kv-val">Engineer narrative (per zone)</span></div>
+  <div class="row-kv"><span class="kv-key">Section 3</span><span class="kv-val">Auditor narrative (IEC 61511)</span></div>
+  <div class="row-kv"><span class="kv-key">Section 4</span><span class="kv-val">Technician guide (plain steps)</span></div>
+  <div class="row-kv"><span class="kv-key">Section 5</span><span class="kv-val">Safety summary + flow diagram</span></div>
+  <div class="row-kv"><span class="kv-key">Total time</span><span class="kv-val" style="color:#0F6E56">~55 seconds end-to-end</span></div>
+  <div class="row-kv"><span class="kv-key">File size</span><span class="kv-val">~90 KB</span></div>
+</div>
+<div style="margin-top:10px"><button onclick="sendPrompt('Show me what the sample output PDF looks like')">View sample output report ↗</button></div>`
+  }
+];
+
+let cur = 0;
+
+function render() {
+  const s = STEPS[cur];
+  document.getElementById('step-card').innerHTML =
+    `<span class="badge ${s.badge}">${s.badgeText}</span>
+     <p class="step-title">${s.title}</p>
+     <p class="step-sub">${s.sub}</p>
+     ${s.content}`;
+  document.getElementById('btn-prev').disabled = cur === 0;
+  document.getElementById('btn-next').disabled = cur === STEPS.length - 1;
+  document.getElementById('btn-next').textContent = cur === STEPS.length - 1 ? 'Done ✓' : 'Next →';
+  document.getElementById('step-counter').textContent = `${cur+1} / ${STEPS.length}`;
+  document.getElementById('timer-fill').style.width = ((cur+1)/STEPS.length*100)+'%';
+  buildProg();
+}
+
+function buildProg() {
+  const row = document.getElementById('prog-row');
+  row.innerHTML = '';
+  STEPS.forEach((s, i) => {
+    if (i > 0) {
+      const l = document.createElement('div');
+      l.className = 'prog-line' + (i <= cur ? ' done' : '');
+      row.appendChild(l);
+    }
+    const wrap = document.createElement('div');
+    wrap.className = 'prog-step';
+    wrap.onclick = () => { cur = i; render(); };
+    const dot = document.createElement('div');
+    dot.className = 'prog-dot' + (i === cur ? ' active' : i < cur ? ' done' : '');
+    dot.textContent = i < cur ? '✓' : i+1;
+    const lbl = document.createElement('div');
+    lbl.className = 'prog-label' + (i === cur ? ' active' : '');
+    lbl.textContent = s.label;
+    wrap.appendChild(dot);
+    wrap.appendChild(lbl);
+    row.appendChild(wrap);
+  });
+}
+
+function navigate(dir) {
+  cur = Math.max(0, Math.min(STEPS.length-1, cur+dir));
+  render();
+}
+
+render();
+</script>
